@@ -1,0 +1,6 @@
+version: '3'
+services:
+  languagetool:
+    image: elestio/languagetool:latest
+    ports:
+      - "8010:8010"
