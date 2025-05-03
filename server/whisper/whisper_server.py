@@ -1,11 +1,18 @@
+import os
+import datetime
 import whisper
-from fastapi import FastAPI, UploadFile
-from fastapi import Form, File
-from difflib import SequenceMatcher
+from fastapi import FastAPI, UploadFile, Form, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from difflib import SequenceMatcher
 import httpx
+import google.generativeai as genai
+import json
 import uvicorn
+from dotenv import load_dotenv  # Import dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 app = FastAPI()
 
@@ -19,6 +26,14 @@ app.add_middleware(
 )
 
 model = whisper.load_model("base")  # You can use "small", "medium", or "large"
+
+# Configure Gemini
+api_key = os.getenv("GEMINI_API_KEY")
+if not api_key:
+    raise ValueError("GEMINI_API_KEY is not set in the environment variables or .env file.")
+genai.configure(api_key=api_key)
+gemini_model = genai.GenerativeModel("models/gemini-2.0-flash")
+
 
 @app.post("/transcribe")
 async def transcribe(file: UploadFile):
@@ -80,5 +95,67 @@ async def evaluate_pronunciation(file: UploadFile = File(...), expected_text: st
     }
 
 
+# === /generate-milestones ===
+class MilestoneRequest(BaseModel):
+    learningLanguage: str
+    currentLevel: str
+    goals: list[str]
+
+def add_days(days: int):
+    return (datetime.datetime.now() + datetime.timedelta(days=days)).isoformat()
+
+@app.post("/generate-milestones")
+async def generate_milestones(preferences: MilestoneRequest):
+    try:
+        goals_str = ", ".join(preferences.goals)
+        prompt = (
+            f"Generate at least 10 language learning milestones for someone learning {preferences.learningLanguage}.\n"
+            f"Current proficiency level: {preferences.currentLevel}.\n"
+            f"Learning goals: {goals_str}.\n"
+            f"Milestones should build up in difficulty. "
+            f"Respond in JSON format with an array of milestones. "
+            f"Each milestone must have: 'title', 'description', and 'dayOffset' (number of days from today)."
+        )
+
+        response = gemini_model.generate_content(prompt)
+
+        # Check if the response has a `text` attribute and is not None
+        if not hasattr(response, "text") or response.text is None:
+            raise HTTPException(status_code=500, detail="Gemini API returned an invalid response.")
+
+        milestones_data = response.text.strip()  # Strip leading/trailing whitespace
+        print(type(milestones_data))  # Log the type of the response
+        print("RAW GEMINI RESPONSE:\n", milestones_data)  # Log the raw response
+
+        # Ensure the response is not empty
+        if not milestones_data:
+            raise HTTPException(status_code=500, detail="Gemini API returned an empty response.")
+
+        # Sanitize and validate JSON
+        try:
+            # Strip leading/trailing whitespace and remove Markdown formatting
+            sanitized_data = milestones_data.strip()
+
+            if sanitized_data.startswith("```"):
+                lines = sanitized_data.splitlines()
+                sanitized_data = "\n".join(lines[1:-1])  # Remove the ```json and ``` lines
+
+            milestones = json.loads(sanitized_data)  # Now safe to parse
+        except json.JSONDecodeError as e:
+            raise HTTPException(status_code=500, detail=f"Invalid JSON response: {str(e)}")
+
+        # Process milestones
+        for m in milestones:
+            m["targetDate"] = add_days(m.pop("dayOffset", 0))
+
+        return {"milestones": milestones}
+
+    except HTTPException as e:
+        # Re-raise HTTP exceptions to preserve their status codes
+        raise e
+    except Exception as e:
+        # Catch all other exceptions and return a 500 error
+        raise HTTPException(status_code=500, detail=str(e))
+
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=6500)
+    uvicorn.run(app, host="0.0.0.0", port=6500, reload=True)
