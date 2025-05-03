@@ -14,4 +14,5 @@ router.patch("/onboard", requireAuth, onboardUser);
 router.get("/me", requireAuth, getUser);
 router.get("/me/milestones", requireAuth, getUserMilestones); // Adjusted to use the same controller
 
+
 export default router;
