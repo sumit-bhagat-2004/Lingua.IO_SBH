@@ -5,6 +5,7 @@ import { Routes, Route } from "react-router-dom";
 import OnboardingGate from "./components/OnboardingGate";
 import Dashboard from "./pages/Dashboard";
 import OnboardingPage from "./pages/OnboardingPage";
+import PronunciationChecker from "./components/Pronounciationchecker";
 
 const App = () => {
   return (
