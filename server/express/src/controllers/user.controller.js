@@ -84,3 +84,19 @@ export const getUser = async (req, res) => {
     return res.status(500).json({ error: "Server error", error });
   }
 };
+
+export const getUserMilestones = async (req, res) => {
+  try {
+    const user = await User.findOne({ clerkId: req.userId });
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    return res.status(200).json({ milestones: user.milestones });
+  } catch (error) {
+    console.error("Error fetching user milestones:", error);
+
+    return res.status(500).json({ error: "Server error", error });
+  }
+};
